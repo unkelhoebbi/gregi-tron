@@ -5,9 +5,15 @@ import { Client, LocalAuth } from 'whatsapp-web.js';
 import { OpenAiModule } from './open-ai/open-ai.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
 import { ConfigModule } from '@nestjs/config';
+import { DataCollectorModule } from './data-collector/data-collector.module';
 
 @Module({
-  imports: [ConfigModule.forRoot(), OpenAiModule, ChatbotModule],
+  imports: [
+    ConfigModule.forRoot(),
+    OpenAiModule,
+    ChatbotModule,
+    DataCollectorModule,
+  ],
   controllers: [AppController],
   providers: [
     {
