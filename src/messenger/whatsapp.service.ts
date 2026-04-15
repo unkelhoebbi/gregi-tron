@@ -7,7 +7,6 @@ import {
 import { Client } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode-terminal';
 import { AiChatService } from '../chatbot/ai-chat.service';
-import { OpenAIChatResponse } from '../chatbot/response.type';
 
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
@@ -41,11 +40,33 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('message', async (message) => {
-      const openAIChatResponse: OpenAIChatResponse =
-        await this.aiChatService.handleMessage(message);
-      if (openAIChatResponse.isSafeToRespond) {
-        await this.client.sendMessage(message.from, openAIChatResponse.message);
+      this.logger.debug({
+        from: message.from,
+        to: message.to,
+        type: message.type,
+        isGroup: message.from.includes('@g.us'),
+        body: message.body,
+      }, 'Message received');
+      try {
+        const response = await this.aiChatService.handleMessage(message);
+        if (response) {
+          await this.client.sendMessage(message.from, response);
+          this.logger.log({ to: message.from, response }, 'Response sent');
+        } else {
+          this.logger.debug({ from: message.from }, 'Message ignored (no response)');
+        }
+      } catch (error) {
+        this.logger.error({ from: message.from, error: error.message, stack: error.stack }, 'Failed to handle message');
       }
+    });
+
+    this.client.on('message_create', (message) => {
+      this.logger.debug({
+        from: message.from,
+        to: message.to,
+        fromMe: message.fromMe,
+        type: message.type,
+      }, 'message_create event');
     });
 
     await this.client.initialize();
@@ -57,41 +78,5 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       await this.client.destroy();
       this.logger.log('WhatsApp client destroyed');
     }, 10000);
-  }
-  public async sendPrivateMessage(
-    message: string,
-    number: string,
-  ): Promise<void> {
-    try {
-      const numberId = await this.client.getNumberId(number);
-      const response = await this.client.sendMessage(
-        numberId._serialized,
-        message,
-      );
-      this.logger.log({ message, number, response }, 'Message sent');
-    } catch (err) {
-      this.logger.error({ message, number, err }, 'Error sending message');
-    }
-  }
-
-  public async sendGroupChatMessage(
-    message: string,
-    chatName: string,
-  ): Promise<void> {
-    try {
-      const chats = await this.client.getChats();
-      const groups = chats.filter((chat) => chat.isGroup);
-
-      const targetGroup = groups.find((group) => group.name === chatName);
-
-      if (targetGroup) {
-        await this.client.sendMessage(targetGroup.id._serialized, message);
-        this.logger.log({ message, chatName }, 'Message sent');
-      } else {
-        this.logger.error({ message, chatName }, 'Error sending message');
-      }
-    } catch (err) {
-      this.logger.error({ message, chatName, err }, 'Error sending message');
-    }
   }
 }

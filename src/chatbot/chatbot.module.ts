@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AiChatService } from './ai-chat.service';
-import { OpenAiModule } from '../open-ai/open-ai.module';
+import { AnthropicModule } from '../anthropic/anthropic.module';
 
 @Module({
-  imports: [OpenAiModule],
+  imports: [AnthropicModule],
   controllers: [],
   providers: [AiChatService],
   exports: [AiChatService],

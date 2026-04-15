@@ -1,84 +1,45 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Message } from 'whatsapp-web.js';
-import { OpenAIChatResponse } from './response.type';
-import { OpenAiService } from '../open-ai/open-ai.service';
+import { MessageParam } from '@anthropic-ai/sdk/resources/messages';
+import { AnthropicService } from '../anthropic/anthropic.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class AiChatService {
   private readonly logger = new Logger(AiChatService.name);
+  private readonly sessions = new Map<string, MessageParam[]>();
 
-  constructor(private readonly openAiService: OpenAiService) {}
+  private readonly SYSTEM_PROMPT = `
+Du bisch en WhatsApp-Chatbot und schribsch NUR uf Züridütsch (Zürcher Mundart).
+Bruuch Wörter und Usdrück wie: Grüezi, Tschau, Merci viumau, Hoi zäme, Gömmer, chli, wäg, luege, häbe, gaa, choo, nöd, nüt, öppis, öpper, würkli, zlässig, geil, schnauz, Gopfertelli, Sälber guet, Wie gaats?, Guet geit's, Weisch was, Ganimed, laufen, lüpfe, rächne, schnäll, sicher, gring, müde, lätz, starch, brav.
+Schrib natürlich, wie me würkli schwätzt — nöd hochdütsch, nöd zu förmlich, kei Umlaute uf hochdütsch.
+Kurzi, direkte Antworte sind besser als lange.
+  `.trim();
 
-  async handleMessage(message: Message): Promise<OpenAIChatResponse> {
-    this.logger.log({ message }, 'Handling message');
-    // Handle Group chats
+  constructor(private readonly anthropicService: AnthropicService) {}
+
+  async handleMessage(message: Message): Promise<string | null> {
     if (message.from.includes('@g.us')) {
-      const mentionedIds = message.mentionedIds as string[];
-      if (mentionedIds.length < 1 || !mentionedIds.includes(message.to)) {
-        return {
-          isSafeToRespond: false,
-          message: '',
-        };
-      }
+      this.logger.log({ from: message.from }, 'Ignoring group message');
+      return null;
     }
 
-    // Message is from a private chat or a group chat where the bot was mentioned
-    const gptResponse = await this.openAiService.askGpt(
-      [
-        {
-          role: 'system',
-          content:
-            'You should decide if it is safe to respond to this message. And set the isSafeToRespond property accordingly.',
-        },
-        {
-          role: 'system',
-          content:
-            'If it is not safe to respond, you should set the message property to an empty string. Otherwise, set it to the response message.',
-        },
-        {
-          role: 'system',
-          content:
-            'Uf dere Sitä findsch es Wörterbuech für Züridütsch https://zuri.net/de/zurich/sl%C3%A4ngikon-arbeit.htm',
-        },
-        {
-          role: 'system',
-          content:
-            'Du Bruchsch möglichscht vill Wörter vo dem Wörterbuech und bruch au gnueg Emojis.',
-        },
-        {
-          role: 'user',
-          content: 'Was schaffsch du eigch?',
-        },
-        {
-          role: 'assistant',
-          content:
-            '{\n' +
-            '  "isSafeToRespond": true,\n' +
-            '  "message": "🤖 Ich bin en Chatbot! 🗣️ Ich hilf Mänsche bi ihrne Frage und informier si über s Neuscht. 👍📚"\n' +
-            '}',
-        },
-        {
-          role: 'user',
-          content: message.body,
-        },
-      ],
-      this.hashUserId(message.from),
-      'src/chatbot/response.type.ts',
-    );
+    this.logger.log({ from: message.from, body: message.body }, 'Handling message');
 
-    try {
-      return JSON.parse(gptResponse);
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to parse GPT response');
-      return {
-        isSafeToRespond: false,
-        message: '',
-      };
-    }
+    const sessionKey = this.hashUserId(message.from);
+    const history = this.sessions.get(sessionKey) ?? [];
+
+    history.push({ role: 'user', content: message.body });
+
+    const response = await this.anthropicService.ask(history, sessionKey, this.SYSTEM_PROMPT);
+
+    history.push({ role: 'assistant', content: response });
+    this.sessions.set(sessionKey, history);
+
+    return response;
   }
 
-  hashUserId(userId: string): string {
+  private hashUserId(userId: string): string {
     return crypto.createHash('sha256').update(userId).digest('hex');
   }
 }
